@@ -1,5 +1,5 @@
 import { api, json } from "./api";
-import { authenticatedShop, beginAuth, finishAuth, uninstallWebhook } from "./auth";
+import { authenticatedStaff, beginAuth, finishAuth, logout, uninstallWebhook } from "./auth";
 import { isRetryable, messageRetryDelay, discover, processOrder, safeError } from "./processor";
 import { appPage, landingPage } from "./ui";
 import type { Env, JobMessage } from "./types";
@@ -19,10 +19,11 @@ export default {
       if (request.method === "GET" && url.pathname === "/") response = html(landingPage());
       else if (request.method === "GET" && url.pathname === "/auth") response = await beginAuth(request, env);
       else if (request.method === "GET" && url.pathname === "/auth/callback") response = await finishAuth(request, env);
+      else if (request.method === "POST" && url.pathname === "/logout") response = logout();
       else if (request.method === "POST" && url.pathname === "/webhooks/app-uninstalled") response = await uninstallWebhook(request, env);
       else if (request.method === "GET" && url.pathname === "/app") {
-        const shop = await authenticatedShop(request, env);
-        if (!shop) {
+        const staff = await authenticatedStaff(request, env);
+        if (!staff) {
           const requestedShop = url.searchParams.get("shop");
           response = requestedShop ? Response.redirect(`${env.SHOPIFY_APP_URL.replace(/\/$/, "")}/auth?shop=${encodeURIComponent(requestedShop)}`, 302) : Response.redirect(`${env.SHOPIFY_APP_URL.replace(/\/$/, "")}/`, 302);
         } else response = html(appPage());

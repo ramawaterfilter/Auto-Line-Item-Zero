@@ -1,17 +1,18 @@
-import { authenticatedShop } from "./auth";
+import { authenticatedStaff } from "./auth";
 import { etaSeconds, ValidationError, validateDateRange } from "./core";
 import { refreshJob } from "./processor";
 import { validateAuditSheet } from "./sheets";
 import type { Env, JobOrderRow, JobRow, ShopRow } from "./types";
 
 export async function api(request: Request, env: Env): Promise<Response> {
-  const shop = await authenticatedShop(request, env);
-  if (!shop) return json({ error: "Authentication required" }, 401);
+  const staff = await authenticatedStaff(request, env);
+  if (!staff) return json({ error: "Shopify staff login required" }, 401);
+  const shop = staff.shop;
   const url = new URL(request.url);
   if (request.method !== "GET" && !sameOrigin(request, env)) return json({ error: "Invalid request origin" }, 403);
 
   if (request.method === "GET" && url.pathname === "/api/session") {
-    return json({ shop: shop.shop_domain, timezone: shop.timezone, scopes: shop.scopes.split(","), targetVariants: env.TARGET_VARIANT_IDS.split(",") });
+    return json({ shop: shop.shop_domain, staff: staff.user, timezone: shop.timezone, scopes: shop.scopes.split(","), targetVariants: env.TARGET_VARIANT_IDS.split(",") });
   }
   if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request, shop, env);
   const match = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(retry-failed|cancel|errors|orders|process))?$/);

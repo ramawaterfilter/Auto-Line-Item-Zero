@@ -64,7 +64,7 @@ For local OAuth, expose the Worker over HTTPS and set that exact origin in `SHOP
 
 ## Shopify configuration
 
-The repository uses the authorization-code grant with rotating expiring offline tokens, encrypted at rest with AES-256-GCM. Configure the app as non-embedded (standalone), copy and adjust `shopify.app.toml`, and use only:
+The repository uses the authorization-code grant with rotating expiring offline tokens for background work and per-user online tokens for Shopify staff login. Both are encrypted with AES-256-GCM. Staff must have all required app permissions; their app session ends after 12 hours at most and is also rejected when Shopify revokes the online token. Configure the app as non-embedded (standalone), copy and adjust `shopify.app.toml`, and use only:
 
 ```text
 read_orders

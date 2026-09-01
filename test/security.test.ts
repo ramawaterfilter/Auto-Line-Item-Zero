@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { api, selectedOrderIds } from "../src/api";
-import { missingScopes } from "../src/auth";
-import { signedValue, verifyHmac, verifySignedValue } from "../src/crypto";
+import { beginAuth, missingScopes } from "../src/auth";
+import { encrypt, signedValue, verifyHmac, verifySignedValue } from "../src/crypto";
 import { validateAuditSheet } from "../src/sheets";
 import type { Env, ShopRow } from "../src/types";
 
@@ -31,6 +31,27 @@ describe("Shopify scopes", () => {
     expect(missingScopes("read_orders,write_order_edits", "write_orders,write_order_edits")).toEqual([]);
     expect(missingScopes("read_orders,write_order_edits", "read_orders")).toEqual(["write_order_edits"]);
     expect(missingScopes("read_orders,read_products,write_order_edits", "write_orders,write_order_edits")).toEqual(["read_products"]);
+  });
+});
+
+describe("Shopify staff login", () => {
+  it("requests per-user access only after the shop is installed", async () => {
+    const envFor = (installed: boolean) => ({
+      DB: {
+        prepare() {
+          return { bind() { return this; }, async first() { return installed ? {} : null; } };
+        },
+      } as unknown as D1Database,
+      SHOPIFY_API_KEY: "key",
+      SHOPIFY_API_SECRET: "secret",
+      SHOPIFY_APP_URL: "https://app.test",
+      SHOPIFY_SCOPES: "read_orders",
+    } as Env);
+    const request = new Request("https://app.test/auth?shop=a.myshopify.com");
+    const install = new URL((await beginAuth(request, envFor(false))).headers.get("Location")!);
+    const staff = new URL((await beginAuth(request, envFor(true))).headers.get("Location")!);
+    expect(install.searchParams.has("grant_options[]")).toBe(false);
+    expect(staff.searchParams.get("grant_options[]")).toBe("per-user");
   });
 });
 
@@ -69,10 +90,37 @@ describe("shop isolation", () => {
         };
       },
     } as unknown as D1Database;
-    const env = { DB: db, SHOPIFY_API_SECRET: "secret" } as Env;
-    const session = await signedValue({ shop: shop.shop_domain, exp: Date.now() + 60_000 }, "secret");
+    const env = {
+      DB: db,
+      SHOPIFY_API_SECRET: "secret",
+      SHOPIFY_API_VERSION: "2026-07",
+      TOKEN_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    } as Env;
+    const token = await encrypt("online-token", env);
+    const session = await signedValue({
+      shop: shop.shop_domain,
+      userId: "123",
+      email: "staff@example.com",
+      name: "Staff User",
+      tokenCiphertext: token.ciphertext,
+      tokenIv: token.iv,
+      exp: Date.now() + 60_000,
+    }, "secret");
     const request = new Request("https://app.test/api/jobs/job_11111111-1111-1111-1111-111111111111", { headers: { Cookie: `app_session=${session}` } });
-    const response = await api(request, env);
-    expect(response.status).toBe(404);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({ data: { shop: { id: "gid://shopify/Shop/1" } } }));
+    try {
+      const response = await api(request, env);
+      expect(response.status).toBe(404);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rejects legacy sessions that identify only a shop", async () => {
+    const session = await signedValue({ shop: "a.myshopify.com", exp: Date.now() + 60_000 }, "secret");
+    const request = new Request("https://app.test/api/session", { headers: { Cookie: `app_session=${session}` } });
+    const response = await api(request, { SHOPIFY_API_SECRET: "secret" } as Env);
+    expect(response.status).toBe(401);
   });
 });
