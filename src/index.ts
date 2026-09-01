@@ -50,8 +50,8 @@ export default {
         if (isRetryable(error) && message.attempts < 5) message.retry({ delaySeconds: messageRetryDelay(message.attempts) });
         else {
           if (message.body.kind === "DISCOVER") {
-            await env.DB.prepare("UPDATE jobs SET status='FAILED', completed_at=?, updated_at=? WHERE id=? AND status IN ('PENDING','DISCOVERING')")
-              .bind(new Date().toISOString(), new Date().toISOString(), message.body.jobId).run();
+            await env.DB.prepare("UPDATE jobs SET status='FAILED', error_message=?, completed_at=?, updated_at=? WHERE id=? AND status IN ('PENDING','DISCOVERING')")
+              .bind(safeError(error), new Date().toISOString(), new Date().toISOString(), message.body.jobId).run();
           }
           message.ack();
         }

@@ -57,6 +57,7 @@ async function poll() {
     $("eta").textContent = formatEta(job.etaSeconds); $("last-order").textContent = job.lastOrder || "—";
     $("retry").hidden = !job.failedCount;
     $("cancel").hidden = !["PENDING","DISCOVERING","PROCESSING"].includes(job.status);
+    if (job.status === "FAILED") showError(job.errorMessage || "Order discovery failed. Please try again.");
     if (job.selectionReady && job.status === "PENDING") {
       if (!ordersLoaded) loadOrders().catch((error) => { ordersLoaded = false; showError(error.message); });
     } else if (active) timer = setTimeout(poll, 2000);

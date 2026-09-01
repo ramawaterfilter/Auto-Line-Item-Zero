@@ -59,6 +59,7 @@ async function getJob(id: string, shop: ShopRow, env: Env): Promise<Response> {
     progressPercent: job.total_orders ? Math.round(job.processed_orders / job.total_orders * 1000) / 10 : 0,
     etaSeconds: etaSeconds(job.processed_orders, job.total_orders, job.rolling_avg_ms),
     startedAt: job.started_at, completedAt: job.completed_at, lastOrder: job.last_order_name,
+    errorMessage: job.error_message,
   });
 }
 
@@ -108,7 +109,7 @@ async function processSelected(request: Request, id: string, shop: ShopRow, env:
   const timestamp = new Date().toISOString();
   await env.DB.batch([
     ...deletions,
-    env.DB.prepare(`UPDATE jobs SET status='PROCESSING', selection_ready=0, total_orders=?, eligible_orders=?,
+    env.DB.prepare(`UPDATE jobs SET status='PROCESSING', selection_ready=0, error_message=NULL, total_orders=?, eligible_orders=?,
       processed_orders=0, success_count=0, skipped_count=0, failed_count=0, completed_at=NULL, updated_at=? WHERE id=? AND shop_id=?`)
       .bind(requested.length, requested.length, timestamp, id, shop.id),
   ]);

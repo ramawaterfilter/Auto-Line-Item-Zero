@@ -146,3 +146,7 @@ export async function editTargetQuantities(
 export function matchingLines(lines: OrderLine[], targets: Set<string>): OrderLine[] {
   return lines.filter((line) => line.variant && targets.has(line.variant.id.slice(line.variant.id.lastIndexOf("/") + 1)));
 }
+
+export function positiveMatchingLines(lines: OrderLine[], targets: Set<string>): OrderLine[] {
+  return matchingLines(lines, targets).filter((line) => line.quantity > 0);
+}

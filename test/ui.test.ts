@@ -20,4 +20,9 @@ describe("operations UI", () => {
     expect(page).toContain("A <strong class=\"danger-text\">BEFORE audit</strong> must succeed first.");
     expect(page).toContain("Validating BEFORE audit...");
   });
+
+  it("shows a job discovery failure in the application alert", () => {
+    expect(page).toContain('role="alert"');
+    expect(page).toContain('showError(job.errorMessage || "Order discovery failed. Please try again.")');
+  });
 });

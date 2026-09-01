@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { etaSeconds, numericId, retryDelay, targetIds, validateDateRange, ValidationError, zonedDateBoundary } from "../src/core";
-import { matchingLines, shopifyGraphql } from "../src/shopify";
+import { matchingLines, positiveMatchingLines, shopifyGraphql } from "../src/shopify";
 import { runDestructiveFlow } from "../src/safety";
 import type { Env, OrderLine } from "../src/types";
 
@@ -20,6 +20,11 @@ describe("target matching", () => {
   it("matches the second target", () => expect(matchingLines([line("58414723465600")], targets)).toHaveLength(1));
   it("matches both targets and excludes unrelated/custom lines", () => {
     expect(matchingLines([line("58780018377088"), line("9"), line(null), line("58414723465600")], targets)).toHaveLength(2);
+  });
+  it("lists only orders with a target variant quantity greater than zero", () => {
+    expect(positiveMatchingLines([line("58780018377088", 0), line("58414723465600", 2), line("9", 3)], targets)).toEqual([
+      line("58414723465600", 2),
+    ]);
   });
   it("normalizes GraphQL IDs", () => expect(numericId("gid://shopify/ProductVariant/123")).toBe("123"));
   it("rejects empty target configuration", () => expect(() => targetIds("nope")).toThrow());

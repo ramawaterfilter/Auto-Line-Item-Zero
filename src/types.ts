@@ -59,6 +59,7 @@ export interface JobRow {
   failed_count: number;
   rolling_avg_ms: number | null;
   last_order_name: string | null;
+  error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;

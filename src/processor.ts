@@ -1,6 +1,6 @@
 import { accessToken } from "./auth";
 import { numericId, PermanentError, retryDelay, RetryableError, targetIds, zonedDateBoundary } from "./core";
-import { discoverOrderPage, editTargetQuantities, fetchOrder, matchingLines } from "./shopify";
+import { discoverOrderPage, editTargetQuantities, fetchOrder, matchingLines, positiveMatchingLines } from "./shopify";
 import { writeRows } from "./sheets";
 import { runDestructiveFlow } from "./safety";
 import type { AuditLine, Env, JobOrderRow, JobRow, OrderSnapshot, ShopRow } from "./types";
@@ -22,7 +22,7 @@ export async function discover(jobId: string, env: Env): Promise<void> {
   const job = row as unknown as JobRow;
   const shop = joinedShop(row);
   const token = await accessToken(shop, env);
-  await env.DB.prepare("UPDATE jobs SET status='DISCOVERING', started_at=COALESCE(started_at, ?), updated_at=? WHERE id=? AND shop_id=?")
+  await env.DB.prepare("UPDATE jobs SET status='DISCOVERING', error_message=NULL, started_at=COALESCE(started_at, ?), updated_at=? WHERE id=? AND shop_id=?")
     .bind(now(), now(), job.id, shop.id).run();
   const query = `created_at:>=${zonedDateBoundary(job.start_date, job.timezone)} created_at:<=${zonedDateBoundary(job.end_date, job.timezone, true)}`;
   const page = await discoverOrderPage(shop.shop_domain, token, env, query, job.discovery_cursor);
@@ -36,7 +36,7 @@ export async function discover(jobId: string, env: Env): Promise<void> {
   for (const reference of page.nodes) {
     const order = await fetchOrder(shop.shop_domain, token, env, reference.id);
     if (!order || order.cancelledAt) continue;
-    const lines = matchingLines(order.lineItems.nodes, targets).filter((line) => line.quantity > 0);
+    const lines = positiveMatchingLines(order.lineItems.nodes, targets);
     if (!lines.length) continue;
     previews.push({ order, snapshot: snapshotFor(order, lines) });
   }
