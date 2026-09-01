@@ -1,0 +1,8 @@
+node_modules/
+.shopify/
+.tmp/
+.wrangler/
+.dev.vars
+dist/
+coverage/
+*.log

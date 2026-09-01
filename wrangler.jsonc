@@ -1,0 +1,44 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "auto-line-item-zero",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-31",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "auto-line-item-zero",
+			"database_id": "7dd65872-58f4-4c60-975d-4237cb315608",
+			"migrations_dir": "migrations"
+		},
+		{
+			"binding": "auto_line_item_zero",
+			"database_name": "auto-line-item-zero",
+			"database_id": "7dd65872-58f4-4c60-975d-4237cb315608",
+			"remote": true
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "JOBS",
+				"queue": "auto-line-item-zero"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "auto-line-item-zero",
+				"max_batch_size": 5,
+				"max_batch_timeout": 2,
+				"max_retries": 5,
+				"dead_letter_queue": "auto-line-item-zero-dlq"
+			}
+		]
+	},
+	"vars": {
+		"SHOPIFY_API_VERSION": "2026-07",
+		"SHOPIFY_SCOPES": "read_orders,read_products,write_order_edits",
+		"MAX_DATE_RANGE_DAYS": "60",
+		"TARGET_VARIANT_IDS": "58780018377088,58414723465600",
+		"ORDER_EDIT_STAFF_NOTE": "Auto-removed KokoCarb Cartridges-Subscription plan"
+	}
+}

@@ -1,0 +1,13 @@
+client_id = "02b78234e50cbf97cf00be31456b28b4"
+name = "Auto Remove Line Item"
+application_url = "https://auto-line-item-zero.phoxnixwaterfilter.workers.dev/app"
+embedded = false
+
+[access_scopes]
+scopes = "read_orders,read_products,write_order_edits"
+
+[auth]
+redirect_urls = ["https://auto-line-item-zero.phoxnixwaterfilter.workers.dev/auth/callback"]
+
+[webhooks]
+api_version = "2026-07"
