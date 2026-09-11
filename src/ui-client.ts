@@ -2,7 +2,9 @@ export const clientScript = `
 const $ = (id) => document.getElementById(id);
 let jobId = localStorage.getItem("currentJobId"), timer, ordersLoaded = false;
 const api = async (url, options) => {
-  const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options?.headers || {}) } });
+  if (!window.shopify?.idToken) throw new Error("Open this app from Shopify Admin → Apps, then reload. Shopify authentication is unavailable on this page.");
+  const token = await window.shopify.idToken();
+  const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options?.headers || {}), Authorization: "Bearer " + token } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || "Request failed");
   return body;
@@ -26,8 +28,40 @@ async function loadSession() {
   const today = new Date().toISOString().slice(0, 10);
   $("end").value = today;
   $("start").value = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  await loadAutomation();
   if (jobId) poll();
 }
+
+let automationTimer, automationSaving = false;
+function renderAutomation(data) {
+  $("automation-enabled").checked = data.enabled;
+  $("automation-enabled").disabled = false;
+  $("automation-status").textContent = data.enabled ? "On · New orders created after " + formatDate(data.enabledAt) + " will be processed automatically." : "Off · Process orders manually below.";
+  $("automation-jobs").replaceChildren(...data.jobs.map((job) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "button ghost";
+    button.textContent = (job.last_order_name || "Order received") + " · " + formatDate(job.created_at) + " · " + readableStatus(job.status) + (job.failed_count ? " · Failed — view details" : job.skipped_count ? " · Skipped" : "");
+    button.onclick = () => {
+      jobId = job.id; ordersLoaded = false; resetSelection(); localStorage.setItem("currentJobId", jobId); poll();
+      $("progress-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    return button;
+  }));
+  if (!data.jobs.length) $("automation-jobs").textContent = "No automatic jobs yet.";
+}
+async function loadAutomation() {
+  clearTimeout(automationTimer);
+  try { if (!automationSaving) { const data = await api("/api/automation"); if (!automationSaving) renderAutomation(data); } }
+  catch (error) { $("automation-status").textContent = "Could not load automation: " + error.message; }
+  finally { automationTimer = setTimeout(loadAutomation, 10000); }
+}
+$("automation-enabled").onchange = async () => {
+  const enabled = $("automation-enabled").checked;
+  automationSaving = true; $("automation-enabled").disabled = true; clearError();
+  $("automation-status").textContent = enabled ? "Validating audit sheet and enabling..." : "Turning automation off...";
+  try { renderAutomation(await api("/api/automation", { method: "PUT", body: JSON.stringify({ enabled }) })); }
+  catch (error) { $("automation-enabled").checked = !enabled; showError(error.message); $("automation-status").textContent = "Could not save automation settings. Refreshing..."; }
+  finally { automationSaving = false; await loadAutomation(); }
+};
 
 $("process").dataset.label = "Preview eligible orders";
 $("execute").dataset.label = "Execute selected orders";

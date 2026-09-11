@@ -1,12 +1,24 @@
-import { authenticatedStaff } from "./auth";
+import { authenticatedStaff, StaffAuthError } from "./auth";
 import { etaSeconds, ValidationError, validateDateRange } from "./core";
 import { refreshJob } from "./processor";
 import { validateAuditSheet } from "./sheets";
 import type { Env, JobOrderRow, JobRow, ShopRow } from "./types";
 
 export async function api(request: Request, env: Env): Promise<Response> {
-  const staff = await authenticatedStaff(request, env);
-  if (!staff) return json({ error: "Shopify staff login required" }, 401);
+  let staff;
+  try { staff = await authenticatedStaff(request, env); }
+  catch (error) {
+    if (!(error instanceof StaffAuthError)) throw error;
+    return Response.json({ error: error.message }, { status: error.status, headers: {
+      "Cache-Control": "no-store", ...(error.retrySession ? { "X-Shopify-Retry-Invalid-Session-Request": "1" } : {}),
+    } });
+  }
+  if (!staff) return Response.json({ error: request.headers.has("Authorization")
+    ? "Shopify session could not be verified. Reopen the app from Shopify Admin → Apps. If this persists, check that the deployed app credentials match the installed app."
+    : "Shopify session is missing. Open this app from Shopify Admin → Apps, then reload." }, {
+    status: 401,
+    headers: { "Cache-Control": "no-store", ...(request.headers.has("Authorization") ? { "X-Shopify-Retry-Invalid-Session-Request": "1" } : {}) },
+  });
   const shop = staff.shop;
   const url = new URL(request.url);
   if (request.method !== "GET" && !sameOrigin(request, env)) return json({ error: "Invalid request origin" }, 403);
@@ -15,6 +27,26 @@ export async function api(request: Request, env: Env): Promise<Response> {
     return json({ shop: shop.shop_domain, staff: staff.user, timezone: shop.timezone, scopes: shop.scopes.split(","), targetVariants: env.TARGET_VARIANT_IDS.split(",") });
   }
   if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request, shop, env);
+  if (url.pathname === "/api/automation") {
+    if (request.method === "PUT") {
+      let body: { enabled?: unknown };
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+      if (!body || typeof body.enabled !== "boolean") return json({ error: "enabled must be a boolean" }, 400);
+      if (body.enabled) {
+        try { await validateAuditSheet(env); }
+        catch (error) { return json({ error: error instanceof Error ? error.message : "Google Sheets validation failed" }, 502); }
+      }
+      await env.DB.prepare(`UPDATE shops SET automation_enabled_at=CASE WHEN ?=1 THEN COALESCE(automation_enabled_at, ?) ELSE NULL END,
+        updated_at=? WHERE id=? AND status='ACTIVE'`)
+        .bind(body.enabled ? 1 : 0, new Date().toISOString(), new Date().toISOString(), shop.id).run();
+    } else if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+    const settings = await env.DB.prepare("SELECT automation_enabled_at FROM shops WHERE id=? AND status='ACTIVE'")
+      .bind(shop.id).first<{ automation_enabled_at: string | null }>();
+    const jobs = await env.DB.prepare(`SELECT id, status, last_order_name, success_count, skipped_count, failed_count, created_at
+      FROM jobs WHERE shop_id=? AND automatic_order_id IS NOT NULL ORDER BY created_at DESC LIMIT 20`)
+      .bind(shop.id).all();
+    return json({ enabled: Boolean(settings?.automation_enabled_at), enabledAt: settings?.automation_enabled_at ?? null, jobs: jobs.results });
+  }
   const match = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(retry-failed|cancel|errors|orders|process))?$/);
   if (!match) return json({ error: "Not found" }, 404);
   const jobId = match[1]!;

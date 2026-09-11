@@ -28,6 +28,7 @@ export type OrderStatus =
   | "AUDIT_AFTER_FAILED" | "CANCELLED";
 
 export interface ShopRow {
+  automation_enabled_at?: string | null;
   id: string;
   shop_domain: string;
   access_token_ciphertext: string;
@@ -43,6 +44,8 @@ export interface ShopRow {
 }
 
 export interface JobRow {
+  automation_enabled_at?: string | null;
+  automatic_order_id?: string | null;
   id: string;
   shop_id: string;
   start_date: string;

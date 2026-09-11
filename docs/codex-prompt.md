@@ -165,7 +165,7 @@ If one target variant succeeds but another mutation fails, do not silently mark 
 
 ## Idempotency
 
-This is mandatory.
+This is mandatory.npm run db:migrate:local
 
 A batch may be retried, the browser may refresh, a Worker may retry, or a job may be delivered twice.
 

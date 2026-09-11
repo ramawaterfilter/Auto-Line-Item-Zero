@@ -25,4 +25,11 @@ describe("operations UI", () => {
     expect(page).toContain('role="alert"');
     expect(page).toContain('showError(job.errorMessage || "Order discovery failed. Please try again.")');
   });
+
+  it("loads App Bridge only for the embedded page", () => {
+    const embedded = appPage({ apiKey: "public-key", embedded: true });
+    expect(embedded).toContain('<meta name="shopify-api-key" content="public-key">');
+    expect(embedded).toContain("https://cdn.shopify.com/shopifycloud/app-bridge.js");
+    expect(page).not.toContain("app-bridge.js");
+  });
 });

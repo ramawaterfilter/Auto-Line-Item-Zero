@@ -1,4 +1,4 @@
-import { cookie, decrypt, encrypt, readCookie, signedValue, verifyHmac, verifySignedValue } from "./crypto";
+import { cookie, decrypt, encrypt, fromBase64, readCookie, signedValue, verifyHmac, verifySignedValue } from "./crypto";
 import { shopifyGraphql } from "./shopify";
 import { PermanentError, RetryableError } from "./core";
 import type { Env, ShopRow } from "./types";
@@ -6,15 +6,6 @@ import type { Env, ShopRow } from "./types";
 const SHOP_PATTERN = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
 
 interface OAuthPayload { shop: string; exp: number; nonce: string; mode: "install" | "staff" }
-interface SessionPayload {
-  shop: string;
-  userId: string;
-  email: string;
-  name: string;
-  tokenCiphertext: string;
-  tokenIv: string;
-  exp: number;
-}
 interface TokenResponse {
   access_token: string;
   refresh_token?: string;
@@ -30,9 +21,22 @@ interface TokenResponse {
   };
 }
 
+interface IdTokenPayload {
+  aud: string;
+  dest: string;
+  exp: number;
+  iss: string;
+  nbf: number;
+  sub: string;
+}
+
 export interface AuthenticatedStaff {
   shop: ShopRow;
   user: { id: string; email: string; name: string };
+}
+
+export class StaffAuthError extends Error {
+  constructor(message: string, public status: 401 | 403 | 502, public retrySession = false) { super(message); }
 }
 
 export function validShop(value: string): boolean {
@@ -104,55 +108,54 @@ export async function finishAuth(request: Request, env: Env): Promise<Response> 
 
   if (saved.mode === "staff") return finishStaffLogin(shop, tokens, env);
 
-  const access = await encrypt(tokens.access_token, env);
-  const refresh = tokens.refresh_token ? await encrypt(tokens.refresh_token, env) : null;
-  const now = new Date();
-  const shopId = `shop_${crypto.randomUUID()}`;
-  await env.DB.prepare(`INSERT INTO shops (
-      id, shop_domain, access_token_ciphertext, access_token_iv, refresh_token_ciphertext, refresh_token_iv,
-      token_expires_at, refresh_token_expires_at, scopes, installed_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(shop_domain) DO UPDATE SET
-      access_token_ciphertext=excluded.access_token_ciphertext, access_token_iv=excluded.access_token_iv,
-      refresh_token_ciphertext=excluded.refresh_token_ciphertext, refresh_token_iv=excluded.refresh_token_iv,
-      token_expires_at=excluded.token_expires_at, refresh_token_expires_at=excluded.refresh_token_expires_at,
-      scopes=excluded.scopes, status='ACTIVE', updated_at=excluded.updated_at`)
-    .bind(shopId, shop, access.ciphertext, access.iv, refresh?.ciphertext ?? null, refresh?.iv ?? null,
-      tokens.expires_in ? new Date(now.getTime() + tokens.expires_in * 1000).toISOString() : null,
-      tokens.refresh_token_expires_in ? new Date(now.getTime() + tokens.refresh_token_expires_in * 1000).toISOString() : null,
-      tokens.scope, now.toISOString(), now.toISOString()).run();
-
-  const stored = await findShop(env, shop);
-  if (!stored) return new Response("Installation could not be saved", { status: 500 });
-  const token = await decrypt(stored.access_token_ciphertext, stored.access_token_iv, env);
-  try {
-    const data = await shopifyGraphql<{ shop: { ianaTimezone: string } }>(shop, token, env, `query ShopTimezone { shop { ianaTimezone } }`);
-    await env.DB.prepare("UPDATE shops SET timezone=?, updated_at=? WHERE id=?").bind(data.shop.ianaTimezone, new Date().toISOString(), stored.id).run();
-    await registerUninstallWebhook(shop, token, env);
-  } catch (error) {
-    console.warn(JSON.stringify({ operation: "post_install_setup", shopDomain: shop, status: "failed", message: safeError(error) }));
-  }
+  await saveInstallation(shop, tokens, env);
   const headers = new Headers({ Location: `${env.SHOPIFY_APP_URL.replace(/\/$/, "")}/auth?shop=${encodeURIComponent(shop)}` });
   headers.append("Set-Cookie", cookie("oauth_state", "", 0));
   return new Response(null, { status: 302, headers });
 }
 
 export async function authenticatedStaff(request: Request, env: Env): Promise<AuthenticatedStaff | null> {
-  const payload = await verifySignedValue<SessionPayload>(readCookie(request, "app_session"), env.SHOPIFY_API_SECRET);
-  if (!payload?.shop || !payload.userId || !payload.tokenCiphertext || !payload.tokenIv) return null;
-  const shop = await findShop(env, payload.shop);
+  const idToken = bearerToken(request);
+  if (!idToken) return null;
+  const identity = await verifyIdToken(idToken, env);
+  if (!identity) return null;
+  let shop = await findShop(env, identity.shop);
+  let user = { id: identity.userId, email: "", name: "Shopify staff" };
+  const needsOnlineAuthorization = request.method !== "GET" || new URL(request.url).pathname === "/api/session" || !shop;
+  if (needsOnlineAuthorization) {
+    const tokens = await exchangeIdToken(identity.shop, idToken, "online", env);
+    if (!tokens?.associated_user) throw new StaffAuthError("Shopify did not return a staff identity. Reopen the app from Shopify Admin → Apps.", 403);
+    const missing = missingScopes(env.SHOPIFY_SCOPES, tokens.associated_user_scope ?? "");
+    if (missing.length) throw new StaffAuthError(`Your Shopify staff account lacks required permissions: ${missing.join(", ")}. Ask the store owner to grant app, order-editing, and product access, and verify the app's approved scopes.`, 403);
+    const associated = tokens.associated_user;
+    user = {
+      id: String(associated.id),
+      email: associated.email,
+      name: [associated.first_name, associated.last_name].filter(Boolean).join(" ") || associated.email,
+    };
+  }
+  shop ??= await ensureEmbeddedInstallation(identity.shop, idToken, env);
   if (!shop) return null;
-  const onlineToken = await decrypt(payload.tokenCiphertext, payload.tokenIv, env);
-  return await validOnlineToken(shop.shop_domain, onlineToken, env)
-    ? { shop, user: { id: payload.userId, email: payload.email, name: payload.name } }
-    : null;
+  return { shop, user };
 }
 
-export function logout(): Response {
-  return new Response(null, {
-    status: 303,
-    headers: { Location: "/", "Set-Cookie": cookie("app_session", "", 0) },
-  });
+export async function verifyIdToken(token: string, env: Env): Promise<{ shop: string; userId: string } | null> {
+  const [encodedHeader, encodedPayload, signature, extra] = token.split(".");
+  if (!encodedHeader || !encodedPayload || !signature || extra) return null;
+  try {
+    const header = JSON.parse(new TextDecoder().decode(fromBase64(encodedHeader))) as { alg?: string };
+    const payload = JSON.parse(new TextDecoder().decode(fromBase64(encodedPayload))) as Partial<IdTokenPayload>;
+    if (header.alg !== "HS256" || !await verifyHmac(`${encodedHeader}.${encodedPayload}`, signature, env.SHOPIFY_API_SECRET)) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.aud !== env.SHOPIFY_API_KEY || !payload.sub || !payload.exp || payload.exp <= now || !payload.nbf || payload.nbf > now) return null;
+    const issuer = new URL(payload.iss ?? "");
+    const destination = new URL(payload.dest ?? "");
+    const shop = destination.hostname.toLowerCase();
+    if (issuer.hostname.toLowerCase() !== shop || !validShop(shop)) return null;
+    return { shop, userId: payload.sub };
+  } catch {
+    return null;
+  }
 }
 
 export async function findShop(env: Env, domain: string): Promise<ShopRow | null> {
@@ -220,6 +223,73 @@ async function registerUninstallWebhook(shop: string, token: string, env: Env): 
   }
 }
 
+async function ensureEmbeddedInstallation(domain: string, idToken: string, env: Env): Promise<ShopRow | null> {
+  const existing = await findShop(env, domain);
+  if (existing) return existing;
+  const tokens = await exchangeIdToken(domain, idToken, "offline", env);
+  if (!tokens || missingScopes(env.SHOPIFY_SCOPES, tokens.scope).length) throw new StaffAuthError("The app installation lacks required scopes. Ask the store owner to open the app and approve its requested access.", 403);
+  await saveInstallation(domain, tokens, env);
+  return findShop(env, domain);
+}
+
+async function exchangeIdToken(shop: string, idToken: string, mode: "online" | "offline", env: Env): Promise<TokenResponse | null> {
+  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams({
+      client_id: env.SHOPIFY_API_KEY,
+      client_secret: env.SHOPIFY_API_SECRET,
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      subject_token: idToken,
+      subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+      requested_token_type: `urn:shopify:params:oauth:token-type:${mode}-access-token`,
+      ...(mode === "offline" ? { expiring: "1" } : {}),
+    }),
+  });
+  if (!response.ok) {
+    // Never log the response body, credentials, or ID token.
+    console.warn(JSON.stringify({ operation: "staff_token_exchange", mode, status: response.status }));
+    if (response.status === 400) throw new StaffAuthError("Shopify could not exchange the session token. Reopen the app from Shopify Admin; if this persists, verify the app credentials and installation.", 401, true);
+    if (response.status === 401 || response.status === 403) throw new StaffAuthError("Shopify rejected the app's authorization. Verify that the deployed client ID and secret belong to the installed app.", 502);
+    throw new StaffAuthError("Shopify authentication is temporarily unavailable. Please try again.", 502);
+  }
+  return response.json<TokenResponse>();
+}
+
+async function saveInstallation(shop: string, tokens: TokenResponse, env: Env): Promise<void> {
+  const access = await encrypt(tokens.access_token, env);
+  const refresh = tokens.refresh_token ? await encrypt(tokens.refresh_token, env) : null;
+  const now = new Date();
+  await env.DB.prepare(`INSERT INTO shops (
+      id, shop_domain, access_token_ciphertext, access_token_iv, refresh_token_ciphertext, refresh_token_iv,
+      token_expires_at, refresh_token_expires_at, scopes, installed_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(shop_domain) DO UPDATE SET
+      access_token_ciphertext=excluded.access_token_ciphertext, access_token_iv=excluded.access_token_iv,
+      refresh_token_ciphertext=excluded.refresh_token_ciphertext, refresh_token_iv=excluded.refresh_token_iv,
+      token_expires_at=excluded.token_expires_at, refresh_token_expires_at=excluded.refresh_token_expires_at,
+      scopes=excluded.scopes, status='ACTIVE', updated_at=excluded.updated_at`)
+    .bind(`shop_${crypto.randomUUID()}`, shop, access.ciphertext, access.iv, refresh?.ciphertext ?? null, refresh?.iv ?? null,
+      tokens.expires_in ? new Date(now.getTime() + tokens.expires_in * 1000).toISOString() : null,
+      tokens.refresh_token_expires_in ? new Date(now.getTime() + tokens.refresh_token_expires_in * 1000).toISOString() : null,
+      tokens.scope, now.toISOString(), now.toISOString()).run();
+
+  const stored = await findShop(env, shop);
+  if (!stored) throw new Error("Installation could not be saved");
+  try {
+    const data = await shopifyGraphql<{ shop: { ianaTimezone: string } }>(shop, tokens.access_token, env, `query ShopTimezone { shop { ianaTimezone } }`);
+    await env.DB.prepare("UPDATE shops SET timezone=?, updated_at=? WHERE id=?").bind(data.shop.ianaTimezone, new Date().toISOString(), stored.id).run();
+    await registerUninstallWebhook(shop, tokens.access_token, env);
+  } catch (error) {
+    console.warn(JSON.stringify({ operation: "post_install_setup", shopDomain: shop, status: "failed", message: safeError(error) }));
+  }
+}
+
+const bearerToken = (request: Request): string | null => {
+  const match = request.headers.get("Authorization")?.match(/^Bearer (\S+)$/i);
+  return match?.[1] ?? null;
+};
+
 async function finishStaffLogin(shop: string, tokens: TokenResponse, env: Env): Promise<Response> {
   const user = tokens.associated_user;
   if (!user) return new Response("Shopify did not return a staff identity", { status: 403 });
@@ -239,17 +309,6 @@ async function finishStaffLogin(shop: string, tokens: TokenResponse, env: Env): 
   headers.append("Set-Cookie", cookie("app_session", session, maxAge));
   headers.append("Set-Cookie", cookie("oauth_state", "", 0));
   return new Response(null, { status: 302, headers });
-}
-
-async function validOnlineToken(shop: string, token: string, env: Env): Promise<boolean> {
-  const response = await fetch(`https://${shop}/admin/api/${env.SHOPIFY_API_VERSION}/graphql.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
-    body: JSON.stringify({ query: "query StaffSession { shop { id } }" }),
-  });
-  if (response.status === 401 || response.status === 403) return false;
-  if (!response.ok) throw new Error(`Shopify staff-session check returned HTTP ${response.status}`);
-  return true;
 }
 
 const safeError = (error: unknown): string => error instanceof Error ? error.message.slice(0, 300) : "Unknown error";

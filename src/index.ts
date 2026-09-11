@@ -1,11 +1,12 @@
 import { api, json } from "./api";
-import { authenticatedStaff, beginAuth, finishAuth, logout, uninstallWebhook } from "./auth";
+import { orderCreatedWebhook } from "./automation";
+import { beginAuth, finishAuth, uninstallWebhook, validShop } from "./auth";
 import { isRetryable, messageRetryDelay, discover, processOrder, safeError } from "./processor";
-import { appPage, landingPage } from "./ui";
+import { appPage } from "./ui";
 import type { Env, JobMessage } from "./types";
 
 const securityHeaders = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors https://admin.shopify.com https://*.myshopify.com",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.shopify.com; style-src 'self' 'unsafe-inline'; frame-ancestors https://admin.shopify.com https://*.myshopify.com",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
@@ -16,17 +17,14 @@ export default {
     try {
       const url = new URL(request.url);
       let response: Response;
-      if (request.method === "GET" && url.pathname === "/") response = html(landingPage());
-      else if (request.method === "GET" && url.pathname === "/auth") response = await beginAuth(request, env);
+      if (request.method === "GET" && url.pathname === "/auth") response = await beginAuth(request, env);
       else if (request.method === "GET" && url.pathname === "/auth/callback") response = await finishAuth(request, env);
-      else if (request.method === "POST" && url.pathname === "/logout") response = logout();
       else if (request.method === "POST" && url.pathname === "/webhooks/app-uninstalled") response = await uninstallWebhook(request, env);
+      else if (request.method === "POST" && url.pathname === "/webhooks/orders-create") response = await orderCreatedWebhook(request, env);
       else if (request.method === "GET" && url.pathname === "/app") {
-        const staff = await authenticatedStaff(request, env);
-        if (!staff) {
-          const requestedShop = url.searchParams.get("shop");
-          response = requestedShop ? Response.redirect(`${env.SHOPIFY_APP_URL.replace(/\/$/, "")}/auth?shop=${encodeURIComponent(requestedShop)}`, 302) : Response.redirect(`${env.SHOPIFY_APP_URL.replace(/\/$/, "")}/`, 302);
-        } else response = html(appPage());
+        response = isEmbeddedAppRequest(request)
+          ? html(appPage({ apiKey: env.SHOPIFY_API_KEY, embedded: true }))
+          : new Response("Not found", { status: 404 });
       } else if (url.pathname.startsWith("/api/")) response = await api(request, env);
       else response = new Response("Not found", { status: 404 });
       const headers = new Headers(response.headers);
@@ -69,4 +67,9 @@ function validMessage(value: unknown): value is JobMessage {
 
 function html(body: string): Response {
   return new Response(body, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export function isEmbeddedAppRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  return url.searchParams.has("host") && validShop(url.searchParams.get("shop")?.toLowerCase() ?? "");
 }

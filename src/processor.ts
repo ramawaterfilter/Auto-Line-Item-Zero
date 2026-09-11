@@ -60,6 +60,11 @@ export async function discover(jobId: string, env: Env): Promise<void> {
 export async function processOrder(jobId: string, jobOrderId: string, env: Env, deliveryAttempt = 5): Promise<void> {
   const context = await loadContext(jobId, jobOrderId, env);
   if (!context || ["SUCCESS", "SKIPPED", "CANCELLED"].includes(context.order.status)) return;
+  if (context.job.automatic_order_id && context.job.automation_enabled_at !== context.shop.automation_enabled_at &&
+    context.order.status !== "PROCESSING" && context.order.before_audit_status !== "WRITTEN" && !context.order.result_json) {
+    await finishOrder(context, "SKIPPED", Date.now(), env, "Automation disabled or restarted");
+    return;
+  }
   if (["CANCELLING", "CANCELLED"].includes(context.job.status) && context.order.status !== "PROCESSING") {
     await env.DB.prepare("UPDATE job_orders SET status='CANCELLED', completed_at=?, updated_at=? WHERE id=? AND shop_id=?")
       .bind(now(), now(), context.order.id, context.shop.id).run();

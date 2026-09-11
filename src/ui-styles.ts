@@ -51,9 +51,6 @@ h2 { margin: 0; font-size: 1.2rem; line-height: 1.25; letter-spacing: -.018em; }
 .title-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .lede { max-width: 680px; margin-bottom: 0; color: var(--muted); font-size: .98rem; }
 .danger-text { color: var(--danger); }
-.danger-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--danger); border: 1px solid var(--danger-border); border-radius: 999px; background: var(--danger-bg); font-size: .72rem; font-weight: 750; white-space: nowrap; }
-.danger-badge .icon { width: .9rem; height: .9rem; }
-
 .card { margin-bottom: 22px; padding: 28px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
 .step-card { scroll-margin-top: 90px; }
 .section-heading, .heading-group { display: flex; align-items: center; gap: 13px; }
