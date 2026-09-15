@@ -102,7 +102,9 @@ export function appPage(
 
       <section class="card step-card" aria-labelledby="automation-title">
         <div class="section-heading"><div><p class="eyebrow">Store settings</p><h2 id="automation-title">Automatic processing</h2></div></div>
-        <label class="select-all"><input type="checkbox" id="automation-enabled" role="switch" disabled><span>Automatically process new orders</span></label>
+        <label class="select-all"><input type="checkbox" id="automation-enabled" aria-describedby="automation-pending" disabled><span>Automatically process new orders</span></label>
+        <p id="automation-pending" class="helper" aria-live="polite">Choose a setting, then click Apply to save it.</p>
+        <div class="card-actions"><button id="automation-apply" class="button primary" type="button" disabled><span>Apply</span></button></div>
         <p class="helper">When enabled, new orders are processed as soon as Shopify notifies the app, even when it is closed. Matching target variants are set to quantity 0 with BEFORE and AFTER audit records.</p>
         <p class="helper">Only orders created after enabling are included. Turning this off skips waiting work; edits already started finish their audit records. Manual processing remains available below.</p>
         <p id="automation-status" role="status" aria-live="polite">Loading automation settings...</p>

@@ -32,10 +32,20 @@ async function loadSession() {
   if (jobId) poll();
 }
 
-let automationTimer, automationSaving = false;
-function renderAutomation(data) {
-  $("automation-enabled").checked = data.enabled;
-  $("automation-enabled").disabled = false;
+let automationTimer, automationSaving = false, automationSaved = null, automationDirty = false, automationVersion = 0;
+function updateAutomationControls() {
+  automationDirty = automationSaved !== null && $("automation-enabled").checked !== automationSaved;
+  $("automation-enabled").disabled = automationSaving || automationSaved === null;
+  $("automation-apply").disabled = automationSaving || !automationDirty;
+  $("automation-apply").querySelector("span").textContent = automationSaving ? "Applying..." : "Apply";
+  $("automation-pending").textContent = automationSaving ? "Saving your choice..." : automationDirty
+    ? "Unsaved change. Click Apply to turn automation " + ($("automation-enabled").checked ? "on." : "off.")
+    : "Choose a setting, then click Apply to save it.";
+}
+function renderAutomation(data, applied = false) {
+  if (!automationDirty || applied) $("automation-enabled").checked = data.enabled;
+  automationSaved = data.enabled;
+  updateAutomationControls();
   $("automation-status").textContent = data.enabled ? "On · New orders created after " + formatDate(data.enabledAt) + " will be processed automatically." : "Off · Process orders manually below.";
   $("automation-jobs").replaceChildren(...data.jobs.map((job) => {
     const button = document.createElement("button"); button.type = "button"; button.className = "button ghost";
@@ -50,17 +60,19 @@ function renderAutomation(data) {
 }
 async function loadAutomation() {
   clearTimeout(automationTimer);
-  try { if (!automationSaving) { const data = await api("/api/automation"); if (!automationSaving) renderAutomation(data); } }
+  const version = automationVersion;
+  try { if (!automationSaving) { const data = await api("/api/automation"); if (!automationSaving && version === automationVersion) renderAutomation(data); } }
   catch (error) { $("automation-status").textContent = "Could not load automation: " + error.message; }
   finally { automationTimer = setTimeout(loadAutomation, 10000); }
 }
-$("automation-enabled").onchange = async () => {
+$("automation-enabled").onchange = updateAutomationControls;
+$("automation-apply").onclick = async () => {
+  if (automationSaving || !automationDirty) return;
   const enabled = $("automation-enabled").checked;
-  automationSaving = true; $("automation-enabled").disabled = true; clearError();
-  $("automation-status").textContent = enabled ? "Validating audit sheet and enabling..." : "Turning automation off...";
-  try { renderAutomation(await api("/api/automation", { method: "PUT", body: JSON.stringify({ enabled }) })); }
-  catch (error) { $("automation-enabled").checked = !enabled; showError(error.message); $("automation-status").textContent = "Could not save automation settings. Refreshing..."; }
-  finally { automationSaving = false; await loadAutomation(); }
+  automationSaving = true; automationVersion++; updateAutomationControls(); clearError();
+  try { renderAutomation(await api("/api/automation", { method: "PUT", body: JSON.stringify({ enabled }) }), true); }
+  catch (error) { showError("Could not apply automation settings: " + error.message); }
+  finally { automationSaving = false; updateAutomationControls(); await loadAutomation(); }
 };
 
 $("process").dataset.label = "Preview eligible orders";

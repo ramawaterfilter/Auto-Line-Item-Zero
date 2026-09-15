@@ -244,7 +244,7 @@ export async function refreshJob(jobId: string, shopId: string, env: Env): Promi
   await env.DB.prepare(`UPDATE jobs SET total_orders=?, eligible_orders=?, processed_orders=?, success_count=?, skipped_count=?, failed_count=?,
     status=?, completed_at=CASE WHEN ? IN ('COMPLETED','CANCELLED') THEN COALESCE(completed_at, ?) ELSE completed_at END, updated_at=?
     WHERE id=? AND shop_id=?`).bind(counts.total ?? 0, counts.eligible ?? 0, counts.processed ?? 0, counts.success ?? 0,
-      counts.skipped ?? 0, counts.failed ?? 0, status, status, now(), now(), jobId, shopId).run();
+    counts.skipped ?? 0, counts.failed ?? 0, status, status, now(), now(), jobId, shopId).run();
 }
 
 async function loadContext(jobId: string, jobOrderId: string, env: Env): Promise<WorkContext | null> {
