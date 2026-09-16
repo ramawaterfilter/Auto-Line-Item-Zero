@@ -38,7 +38,7 @@ export function assertNoUserErrors(errors: UserError[] | undefined, operation: s
 }
 
 export interface OrderPage {
-  nodes: Array<{ id: string; name: string; createdAt: string }>;
+  nodes: Array<{ id: string; name: string }>;
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
 }
 
@@ -47,7 +47,7 @@ export async function discoverOrderPage(
 ): Promise<OrderPage> {
   const data = await shopifyGraphql<{ orders: OrderPage }>(shop, token, env, `query DiscoverOrders($query: String!, $cursor: String) {
     orders(first: 50, after: $cursor, query: $query, sortKey: CREATED_AT) {
-      nodes { id name createdAt }
+      nodes { id name }
       pageInfo { hasNextPage endCursor }
     }
   }`, { query, cursor });

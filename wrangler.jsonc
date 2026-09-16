@@ -34,9 +34,6 @@
 			}
 		]
 	},
-	"triggers": {
-		"crons": ["*/5 * * * *"]
-	},
 	"vars": {
 		"SHOPIFY_API_VERSION": "2026-07",
 		"SHOPIFY_SCOPES": "read_orders,read_products,write_order_edits",

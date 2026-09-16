@@ -1,6 +1,5 @@
-import { accessToken, validShop } from "./auth";
+import { validShop } from "./auth";
 import { verifyHmac } from "./crypto";
-import { discoverOrderPage } from "./shopify";
 import type { Env, ShopRow } from "./types";
 
 export function createdAfterEnable(createdAt: unknown, enabledAt: string | null | undefined): boolean {
@@ -57,48 +56,4 @@ async function queueAutomaticOrder(shop: ShopRow, orderId: string, orderName: st
   if (work.status === "PENDING") {
     await env.JOBS.send({ kind: "PROCESS", jobId: work.job_id, jobOrderId: work.id });
   }
-}
-
-// The webhook is the fast path. This scan catches deliveries Shopify missed or could not complete.
-export async function reconcileAutomaticOrders(env: Env): Promise<void> {
-  const shops = await env.DB.prepare("SELECT * FROM shops WHERE status='ACTIVE' AND automation_enabled_at IS NOT NULL")
-    .all<ShopRow>();
-  for (const shop of shops.results) {
-    try {
-      await reconcileShop(shop, env);
-    } catch (error) {
-      console.error(JSON.stringify({ operation: "automatic_reconciliation", shopDomain: shop.shop_domain,
-        status: "failed", message: error instanceof Error ? error.message : "Unknown error" }));
-    }
-  }
-}
-
-async function reconcileShop(shop: ShopRow, env: Env): Promise<void> {
-  if (!shop.automation_enabled_at) return;
-  const until = new Date(Date.now() - 2 * 60_000).toISOString();
-  if (Date.parse(until) <= Date.parse(shop.automation_enabled_at)) return;
-  // Revisit recent results because Shopify order search can lag behind order creation.
-  const from = shop.automation_checked_through
-    ? new Date(Math.max(Date.parse(shop.automation_enabled_at), Date.parse(shop.automation_checked_through) - 15 * 60_000)).toISOString()
-    : shop.automation_enabled_at;
-  const token = await accessToken(shop, env);
-  const query = `created_at:>="${from}" created_at:<="${until}"`;
-  let cursor: string | null = null;
-  let scanned = 0;
-  do {
-    const page = await discoverOrderPage(shop.shop_domain, token, env, query, cursor);
-    for (const order of page.nodes) {
-      scanned++;
-      if (createdAfterEnable(order.createdAt, shop.automation_enabled_at) && Date.parse(order.createdAt) <= Date.parse(until)) {
-        await queueAutomaticOrder(shop, order.id, order.name, order.createdAt, env);
-      }
-    }
-    if (!page.pageInfo.hasNextPage) break;
-    if (!page.pageInfo.endCursor || page.pageInfo.endCursor === cursor) throw new Error("Order search returned an invalid cursor");
-    cursor = page.pageInfo.endCursor;
-  } while (true);
-  await env.DB.prepare("UPDATE shops SET automation_checked_through=? WHERE id=? AND automation_enabled_at=?")
-    .bind(until, shop.id, shop.automation_enabled_at).run();
-  console.info(JSON.stringify({ operation: "automatic_reconciliation", shopDomain: shop.shop_domain,
-    status: "completed", scanned, checkedThrough: until }));
 }

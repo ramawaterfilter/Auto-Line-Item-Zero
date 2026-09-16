@@ -123,7 +123,7 @@ Smoke-test development orders containing variant 1, variant 2, both, neither, an
 
 ### Automatic processing
 
-The `orders/create` webhook queues new orders immediately. A Cloudflare Cron Trigger also checks enabled stores every five minutes and queues orders missed by webhooks. It revisits the last 15 minutes to allow for Shopify search indexing delay. The last completed backup check appears in the app. If a check fails, its checkpoint remains unchanged so the next run retries. Both paths use the same unique automatic job per order.
+The app processes new orders only when Shopify delivers the signed `orders/create` webhook. There is no scheduled order scan.
 
 The **Automatic processing** setting is saved separately for each store and defaults to off. Change the checkbox, then click **Apply** to enable or disable automation. The checkbox alone does not change the live setting. Applying an enabled setting first validates the Google Sheets audit setup. Only orders created strictly after the saved enable time are accepted; enabling again after switching off establishes a new cutoff. Manual date-range previews and selected-order processing remain available.
 
@@ -133,7 +133,7 @@ Turning automation off skips waiting automatic work. Work already started, inclu
 
 To activate this feature in an environment:
 
-1. Apply migrations (`npm run db:migrate:local` for development, `npm run db:migrate:remote` for production), including the automation check checkpoint.
+1. Apply migrations (`npm run db:migrate:local` for development, `npm run db:migrate:remote` for production).
 2. Deploy the updated Worker to the app's configured HTTPS origin.
 3. Validate and release `shopify.app.toml` with Shopify CLI (`shopify app config validate --json`, then `shopify app deploy`) so the `orders/create` subscription reaches `/webhooks/orders-create`. Replace temporary tunnel URLs before a production release.
 4. Open the app, check **Automatically process new orders** for the desired store, and click **Apply**.

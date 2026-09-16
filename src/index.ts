@@ -1,5 +1,5 @@
 import { api, json } from "./api";
-import { orderCreatedWebhook, reconcileAutomaticOrders } from "./automation";
+import { orderCreatedWebhook } from "./automation";
 import { beginAuth, finishAuth, uninstallWebhook, validShop } from "./auth";
 import { isRetryable, messageRetryDelay, discover, processOrder, safeError } from "./processor";
 import { appPage } from "./ui";
@@ -57,9 +57,6 @@ export default {
     }
   },
 
-  async scheduled(_event, env): Promise<void> {
-    await reconcileAutomaticOrders(env);
-  },
 } satisfies ExportedHandler<Env, JobMessage>;
 
 function validMessage(value: unknown): value is JobMessage {
