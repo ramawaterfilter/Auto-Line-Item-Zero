@@ -135,7 +135,7 @@ To activate this feature in an environment:
 
 1. Apply migrations (`npm run db:migrate:local` for development, `npm run db:migrate:remote` for production).
 2. Deploy the updated Worker to the app's configured HTTPS origin.
-3. Validate and release `shopify.app.toml` with Shopify CLI (`shopify app config validate --json`, then `shopify app deploy`) so the `orders/create` subscription reaches `/webhooks/orders-create`. Replace temporary tunnel URLs before a production release.
+3. Validate and release `shopify.app.toml` with Shopify CLI (`shopify app config validate --json`, then `shopify app deploy`) so the `orders/create` subscription reaches the absolute `/webhooks/orders-create` URL. Relative webhook paths are appended to the configured app URL, which ends in `/app`. Replace temporary tunnel URLs before a production release.
 4. Open the app, check **Automatically process new orders** for the desired store, and click **Apply**.
 
 Webhook verification follows [Shopify's delivery verification guidance](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries). Existing stores receive the app-config subscription when the app version is released. No additional order-edit scopes are introduced.

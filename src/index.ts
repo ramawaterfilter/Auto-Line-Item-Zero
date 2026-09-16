@@ -20,7 +20,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/auth") response = await beginAuth(request, env);
       else if (request.method === "GET" && url.pathname === "/auth/callback") response = await finishAuth(request, env);
       else if (request.method === "POST" && url.pathname === "/webhooks/app-uninstalled") response = await uninstallWebhook(request, env);
-      else if (request.method === "POST" && url.pathname === "/webhooks/orders-create") response = await orderCreatedWebhook(request, env);
+      else if (request.method === "POST" && ["/webhooks/orders-create", "/app/webhooks/orders-create"].includes(url.pathname)) response = await orderCreatedWebhook(request, env);
       else if (request.method === "GET" && url.pathname === "/app") {
         response = isEmbeddedAppRequest(request)
           ? html(appPage({ apiKey: env.SHOPIFY_API_KEY, embedded: true }))

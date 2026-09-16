@@ -14,4 +14,4 @@ api_version = "2026-07"
 
 [[webhooks.subscriptions]]
 topics = ["orders/create"]
-uri = "/webhooks/orders-create"
+uri = "https://auto-line-item-zero.phoxnixwaterfilter.workers.dev/webhooks/orders-create"

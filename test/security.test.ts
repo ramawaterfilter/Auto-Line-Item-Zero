@@ -35,6 +35,16 @@ describe("Shopify HMAC signatures", () => {
   });
 });
 
+describe("order webhook routes", () => {
+  it("routes the configured URL and previous Shopify URL through signature verification", async () => {
+    const env = { SHOPIFY_API_SECRET: "secret" } as Env;
+    for (const path of ["/webhooks/orders-create", "/app/webhooks/orders-create"]) {
+      const request = new Request(`https://app.test${path}`, { method: "POST", body: "{}" }) as Parameters<typeof worker.fetch>[0];
+      expect((await worker.fetch(request, env)).status).toBe(401);
+    }
+  });
+});
+
 describe("Shopify ID tokens", () => {
   it("accepts a valid embedded identity and rejects the wrong audience", async () => {
     const env = { SHOPIFY_API_KEY: "key", SHOPIFY_API_SECRET: "secret" } as Env;
