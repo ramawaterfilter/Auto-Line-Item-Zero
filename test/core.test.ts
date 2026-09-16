@@ -7,6 +7,7 @@ import type { Env, OrderLine } from "../src/types";
 const line = (variantId: string | null, quantity = 1): OrderLine => ({
   id: `gid://shopify/LineItem/${variantId ?? "custom"}`,
   quantity,
+  currentQuantity: quantity,
   name: "Test item",
   sku: null,
   variant: variantId ? { id: `gid://shopify/ProductVariant/${variantId}`, title: "Default", product: { title: "Product" } } : null,
@@ -25,6 +26,10 @@ describe("target matching", () => {
     expect(positiveMatchingLines([line("58780018377088", 0), line("58414723465600", 2), line("9", 3)], targets)).toEqual([
       line("58414723465600", 2),
     ]);
+  });
+  it("uses current quantity after Shopify order edits", () => {
+    const edited = { ...line("58414723465600", 1), currentQuantity: 0 };
+    expect(positiveMatchingLines([edited], targets)).toEqual([]);
   });
   it("normalizes GraphQL IDs", () => expect(numericId("gid://shopify/ProductVariant/123")).toBe("123"));
   it("rejects empty target configuration", () => expect(() => targetIds("nope")).toThrow());

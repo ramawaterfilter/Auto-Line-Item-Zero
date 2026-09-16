@@ -46,7 +46,10 @@ function renderAutomation(data, applied = false) {
   if (!automationDirty || applied) $("automation-enabled").checked = data.enabled;
   automationSaved = data.enabled;
   updateAutomationControls();
-  $("automation-status").textContent = data.enabled ? "On · New orders created after " + formatDate(data.enabledAt) + " will be processed automatically." : "Off · Process orders manually below.";
+  $("automation-status").textContent = data.enabled
+    ? "On · New orders created after " + formatDate(data.enabledAt) + " will be processed automatically. " +
+      (data.checkedThrough ? "Last backup check: " + formatDate(data.checkedThrough) + "." : "First backup check is pending.")
+    : "Off · Process orders manually below.";
   $("automation-jobs").replaceChildren(...data.jobs.map((job) => {
     const button = document.createElement("button"); button.type = "button"; button.className = "button ghost";
     button.textContent = (job.last_order_name || "Order received") + " · " + formatDate(job.created_at) + " · " + readableStatus(job.status) + (job.failed_count ? " · Failed — view details" : job.skipped_count ? " · Skipped" : "");

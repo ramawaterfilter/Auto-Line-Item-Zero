@@ -40,12 +40,15 @@ export async function api(request: Request, env: Env): Promise<Response> {
         updated_at=? WHERE id=? AND status='ACTIVE'`)
         .bind(body.enabled ? 1 : 0, new Date().toISOString(), new Date().toISOString(), shop.id).run();
     } else if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
-    const settings = await env.DB.prepare("SELECT automation_enabled_at FROM shops WHERE id=? AND status='ACTIVE'")
-      .bind(shop.id).first<{ automation_enabled_at: string | null }>();
+    const settings = await env.DB.prepare("SELECT automation_enabled_at, automation_checked_through FROM shops WHERE id=? AND status='ACTIVE'")
+      .bind(shop.id).first<{ automation_enabled_at: string | null; automation_checked_through: string | null }>();
     const jobs = await env.DB.prepare(`SELECT id, status, last_order_name, success_count, skipped_count, failed_count, created_at
       FROM jobs WHERE shop_id=? AND automatic_order_id IS NOT NULL ORDER BY created_at DESC LIMIT 20`)
       .bind(shop.id).all();
-    return json({ enabled: Boolean(settings?.automation_enabled_at), enabledAt: settings?.automation_enabled_at ?? null, jobs: jobs.results });
+    return json({ enabled: Boolean(settings?.automation_enabled_at), enabledAt: settings?.automation_enabled_at ?? null,
+      checkedThrough: settings?.automation_enabled_at && settings.automation_checked_through &&
+        Date.parse(settings.automation_checked_through) > Date.parse(settings.automation_enabled_at)
+        ? settings.automation_checked_through : null, jobs: jobs.results });
   }
   const match = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(retry-failed|cancel|errors|orders|process))?$/);
   if (!match) return json({ error: "Not found" }, 404);

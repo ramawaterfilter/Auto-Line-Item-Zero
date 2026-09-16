@@ -29,6 +29,7 @@ export type OrderStatus =
 
 export interface ShopRow {
   automation_enabled_at?: string | null;
+  automation_checked_through?: string | null;
   id: string;
   shop_domain: string;
   access_token_ciphertext: string;
@@ -96,6 +97,7 @@ export interface Money {
 export interface OrderLine {
   id: string;
   quantity: number;
+  currentQuantity: number;
   name: string;
   sku: string | null;
   variant: { id: string; title: string; product: { title: string } } | null;

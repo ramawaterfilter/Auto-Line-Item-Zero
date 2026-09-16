@@ -38,7 +38,7 @@ export function assertNoUserErrors(errors: UserError[] | undefined, operation: s
 }
 
 export interface OrderPage {
-  nodes: Array<{ id: string; name: string }>;
+  nodes: Array<{ id: string; name: string; createdAt: string }>;
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
 }
 
@@ -47,7 +47,7 @@ export async function discoverOrderPage(
 ): Promise<OrderPage> {
   const data = await shopifyGraphql<{ orders: OrderPage }>(shop, token, env, `query DiscoverOrders($query: String!, $cursor: String) {
     orders(first: 50, after: $cursor, query: $query, sortKey: CREATED_AT) {
-      nodes { id name }
+      nodes { id name createdAt }
       pageInfo { hasNextPage endCursor }
     }
   }`, { query, cursor });
@@ -60,7 +60,7 @@ export async function fetchOrder(shop: string, token: string, env: Env, orderId:
       id name createdAt cancelledAt email
       totalPriceSet { shopMoney { amount currencyCode } }
       lineItems(first: 250, after: $cursor) {
-        nodes { id quantity name sku variant { id title product { title } } originalUnitPriceSet { shopMoney { amount currencyCode } } }
+        nodes { id quantity currentQuantity name sku variant { id title product { title } } originalUnitPriceSet { shopMoney { amount currencyCode } } }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -72,7 +72,7 @@ export async function fetchOrder(shop: string, token: string, env: Env, orderId:
     const next = await shopifyGraphql<{ order: { lineItems: ShopifyOrder["lineItems"] } | null }>(shop, token, env, `query MoreOrderLines($id: ID!, $cursor: String!) {
       order(id: $id) {
         lineItems(first: 250, after: $cursor) {
-          nodes { id quantity name sku variant { id title product { title } } originalUnitPriceSet { shopMoney { amount currencyCode } } }
+          nodes { id quantity currentQuantity name sku variant { id title product { title } } originalUnitPriceSet { shopMoney { amount currencyCode } } }
           pageInfo { hasNextPage endCursor }
         }
       }
@@ -148,5 +148,5 @@ export function matchingLines(lines: OrderLine[], targets: Set<string>): OrderLi
 }
 
 export function positiveMatchingLines(lines: OrderLine[], targets: Set<string>): OrderLine[] {
-  return matchingLines(lines, targets).filter((line) => line.quantity > 0);
+  return matchingLines(lines, targets).filter((line) => line.currentQuantity > 0);
 }

@@ -2,18 +2,24 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createdAfterEnable, orderCreatedWebhook } from "../src/automation";
+import { createdAfterEnable, orderCreatedWebhook, reconcileAutomaticOrders } from "../src/automation";
 import { api } from "../src/api";
 import { processOrder } from "../src/processor";
+import { discoverOrderPage } from "../src/shopify";
 import type { Env } from "../src/types";
 
 vi.mock("../src/auth", async (original) => ({
   ...await original<typeof import("../src/auth")>(),
+  accessToken: vi.fn(async () => "test-token"),
   authenticatedStaff: vi.fn(async (request: Request, env: Env) => {
     if (request.headers.get("Authorization") !== "test-staff") return null;
     const shop = await env.DB.prepare("SELECT * FROM shops WHERE id='shop-a'").first();
     return { shop, user: { id: "staff" } };
   }),
+}));
+vi.mock("../src/shopify", async (original) => ({
+  ...await original<typeof import("../src/shopify")>(),
+  discoverOrderPage: vi.fn(),
 }));
 vi.mock("../src/sheets", () => ({ validateAuditSheet: vi.fn(async () => {}), writeRows: vi.fn() }));
 
@@ -110,5 +116,40 @@ describe("automatic order processing", () => {
     expect(saved.enabledAt).toBe("2026-09-11T10:00:00.000Z");
     expect((await api(request(false), env)).status).toBe(200);
     expect(db.prepare("SELECT automation_enabled_at FROM shops WHERE id='shop-a'").get()?.automation_enabled_at).toBeNull();
+  });
+
+  it("recovers orders missed by the webhook and does not queue them twice", async () => {
+    const { env, db, send, enable } = setup(); enable();
+    vi.mocked(discoverOrderPage).mockResolvedValue({
+      nodes: [
+        { id: "gid://shopify/Order/100", name: "#100", createdAt: "2026-09-11T09:59:59Z" },
+        { id: "gid://shopify/Order/101", name: "#101", createdAt: "2026-09-11T10:00:01Z" },
+      ],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    });
+    await reconcileAutomaticOrders(env);
+    expect(vi.mocked(discoverOrderPage).mock.calls[0]?.[3]).toMatch(/^created_at:>="[^\"]+" created_at:<="[^\"]+"$/);
+    expect(db.prepare("SELECT COUNT(*) count FROM jobs").get()?.count).toBe(1);
+    expect(db.prepare("SELECT automatic_order_id FROM jobs").get()?.automatic_order_id).toBe("gid://shopify/Order/101");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(db.prepare("SELECT automation_checked_through FROM shops WHERE id='shop-a'").get()?.automation_checked_through).toBeTruthy();
+    db.exec("UPDATE job_orders SET status='SUCCESS'");
+    await reconcileAutomaticOrders(env);
+    expect(db.prepare("SELECT COUNT(*) count FROM jobs").get()?.count).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the scan checkpoint unchanged when queueing fails", async () => {
+    const { env, db, send, enable } = setup(); enable();
+    vi.mocked(discoverOrderPage).mockResolvedValue({
+      nodes: [{ id: "gid://shopify/Order/101", name: "#101", createdAt: "2026-09-11T10:00:01Z" }],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    });
+    send.mockRejectedValueOnce(new Error("Queue unavailable"));
+    await reconcileAutomaticOrders(env);
+    expect(db.prepare("SELECT automation_checked_through FROM shops WHERE id='shop-a'").get()?.automation_checked_through).toBeNull();
+    await reconcileAutomaticOrders(env);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(db.prepare("SELECT automation_checked_through FROM shops WHERE id='shop-a'").get()?.automation_checked_through).toBeTruthy();
   });
 });

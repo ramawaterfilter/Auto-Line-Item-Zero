@@ -1,5 +1,5 @@
 import { api, json } from "./api";
-import { orderCreatedWebhook } from "./automation";
+import { orderCreatedWebhook, reconcileAutomaticOrders } from "./automation";
 import { beginAuth, finishAuth, uninstallWebhook, validShop } from "./auth";
 import { isRetryable, messageRetryDelay, discover, processOrder, safeError } from "./processor";
 import { appPage } from "./ui";
@@ -56,6 +56,10 @@ export default {
       }
     }
   },
+
+  async scheduled(_event, env): Promise<void> {
+    await reconcileAutomaticOrders(env);
+  },
 } satisfies ExportedHandler<Env, JobMessage>;
 
 function validMessage(value: unknown): value is JobMessage {
@@ -71,5 +75,6 @@ function html(body: string): Response {
 
 export function isEmbeddedAppRequest(request: Request): boolean {
   const url = new URL(request.url);
-  return url.searchParams.has("host") && validShop(url.searchParams.get("shop")?.toLowerCase() ?? "");
+  return request.headers.get("Sec-Fetch-Dest") !== "document" &&
+    url.searchParams.has("host") && validShop(url.searchParams.get("shop")?.toLowerCase() ?? "");
 }

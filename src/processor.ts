@@ -98,7 +98,7 @@ export async function processOrder(jobId: string, jobOrderId: string, env: Env, 
       await finishOrder(current, "SKIPPED", started, env, "Cancelled order");
       return;
     }
-    const positive = targetLines.filter((line) => line.quantity > 0);
+    const positive = targetLines.filter((line) => line.currentQuantity > 0);
     if (!positive.length) {
       if (current.order.before_audit_status === "WRITTEN" && current.order.snapshot_json) {
         const result = { editId: current.order.shopify_order_edit_id ?? "reconciled", totalAfter: order.totalPriceSet.shopMoney.amount };
@@ -157,7 +157,7 @@ function snapshotFor(order: NonNullable<Awaited<ReturnType<typeof fetchOrder>>>,
     orderTotalBefore: order.totalPriceSet.shopMoney.amount,
     lines: lines.map((line): AuditLine => ({
       variantId: numericId(line.variant!.id), productTitle: line.variant!.product.title, variantTitle: line.variant!.title,
-      sku: line.sku ?? "", quantityBefore: line.quantity, unitPrice: line.originalUnitPriceSet.shopMoney.amount, lineItemId: line.id,
+      sku: line.sku ?? "", quantityBefore: line.currentQuantity, unitPrice: line.originalUnitPriceSet.shopMoney.amount, lineItemId: line.id,
     })),
   };
 }
