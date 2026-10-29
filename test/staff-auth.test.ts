@@ -47,6 +47,26 @@ describe("staff login diagnostics", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("X-Shopify-Retry-Invalid-Session-Request")).toBe("1");
   });
+  it("recovers from a Shopify gateway timeout during staff authorization", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 504 }))
+      .mockResolvedValueOnce(Response.json({ associated_user: { id: 1, email: "staff@example.test" }, associated_user_scope: env.SHOPIFY_SCOPES }));
+    vi.stubGlobal("fetch", fetch);
+    const response = await api(await request(), env);
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]).toEqual(fetch.mock.calls[0]);
+  });
+  it("stops after three attempts when Shopify remains unavailable", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetch = vi.fn(async () => new Response(null, { status: 504 }));
+    vi.stubGlobal("fetch", fetch);
+    const response = await api(await request(), env);
+    expect(response.status).toBe(502);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(await response.text()).toContain("temporarily unavailable");
+  });
 });
 
 describe("authenticated browser requests", () => {

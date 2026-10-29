@@ -233,7 +233,7 @@ async function ensureEmbeddedInstallation(domain: string, idToken: string, env: 
 }
 
 async function exchangeIdToken(shop: string, idToken: string, mode: "online" | "offline", env: Env): Promise<TokenResponse | null> {
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+  const exchange = {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
@@ -245,7 +245,15 @@ async function exchangeIdToken(shop: string, idToken: string, mode: "online" | "
       requested_token_type: `urn:shopify:params:oauth:token-type:${mode}-access-token`,
       ...(mode === "offline" ? { expiring: "1" } : {}),
     }),
-  });
+  };
+  let response = await fetch(`https://${shop}/admin/oauth/access_token`, exchange);
+  // Retry online authorization only; repeating offline exchange can rotate stored tokens.
+  for (let attempt = 0; mode === "online" && response.status >= 500 && attempt < 2; attempt++) {
+    console.warn(JSON.stringify({ operation: "staff_token_exchange_retry", mode, status: response.status, attempt: attempt + 1 }));
+    await response.body?.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    response = await fetch(`https://${shop}/admin/oauth/access_token`, exchange);
+  }
   if (!response.ok) {
     // Never log the response body, credentials, or ID token.
     console.warn(JSON.stringify({ operation: "staff_token_exchange", mode, status: response.status }));
